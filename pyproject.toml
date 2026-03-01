@@ -1,0 +1,20 @@
+[project]
+name = "spotty"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "spotipy>=2.25.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[project.scripts]
+spotty = "spotty:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]
