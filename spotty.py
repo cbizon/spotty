@@ -1,7 +1,9 @@
+import base64
 import json
 import random
 import sqlite3
 import sys
+import urllib.request
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -52,29 +54,72 @@ def save_albums_to_cache(albums, db_path=CACHE_FILE):
         con.close()
 
 
+def get_cached_album_count(db_path=CACHE_FILE):
+    con = sqlite3.connect(db_path)
+    try:
+        return con.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
+    except sqlite3.OperationalError:
+        return 0
+    finally:
+        con.close()
+
+
+def sample_cached_albums(n, db_path=CACHE_FILE):
+    con = sqlite3.connect(db_path)
+    try:
+        rows = con.execute("SELECT data FROM albums ORDER BY RANDOM() LIMIT ?", (n,)).fetchall()
+        return [json.loads(row[0]) for row in rows]
+    finally:
+        con.close()
+
+
 def get_all_saved_albums(sp):
     albums = []
     limit = 50
     offset = 0
     while True:
         response = sp.current_user_saved_albums(limit=limit, offset=offset)
+        total = response["total"]
         items = response["items"]
         albums.extend(items)
+        print(f"  Fetched {len(albums)}/{total}...", flush=True)
         if len(items) < limit:
             break
         offset += limit
     return albums
 
 
+def pick_image_url(album):
+    images = album.get("images", [])
+    if not images:
+        return None
+    return images[-1]["url"]  # smallest available
+
+
+def get_image_base64(url, db_path=CACHE_FILE):
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS images (url TEXT PRIMARY KEY, data BLOB NOT NULL)")
+        row = con.execute("SELECT data FROM images WHERE url=?", (url,)).fetchone()
+        if row:
+            return base64.b64encode(row[0]).decode()
+        with urllib.request.urlopen(url) as resp:
+            data = resp.read()
+        con.execute("INSERT OR IGNORE INTO images (url, data) VALUES (?, ?)", (url, data))
+        con.commit()
+        return base64.b64encode(data).decode()
+    finally:
+        con.close()
+
+
 def get_albums(sp, db_path=CACHE_FILE):
     total = get_album_total(sp)
-    cached = load_cached_albums(db_path)
-    if len(cached) == total:
-        return cached
+    if get_cached_album_count(db_path) == total:
+        return total
     print("Library changed, refreshing cache...")
     albums = get_all_saved_albums(sp)
     save_albums_to_cache(albums, db_path)
-    return albums
+    return total
 
 
 def choose_random_albums(albums, n):
@@ -107,10 +152,10 @@ def main():
     config = load_config()
     sp = get_spotify_client(config)
 
-    albums = get_albums(sp)
-    print(f"Found {len(albums)} albums in your library")
+    total = get_albums(sp)
+    print(f"Found {total} albums in your library")
 
-    selected = choose_random_albums(albums, n)
+    selected = sample_cached_albums(n)
     print(f"\n{n} random albums:\n")
     for item in selected:
         print(f"  {format_album(item)}")

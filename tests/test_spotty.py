@@ -4,7 +4,8 @@ import tempfile
 
 import pytest
 
-from spotty import choose_random_albums, format_album, load_cached_albums, load_config, save_albums_to_cache
+from spotty import (choose_random_albums, format_album, get_cached_album_count,
+                    load_cached_albums, load_config, sample_cached_albums, save_albums_to_cache)
 
 
 def make_album_item(artist, title, year):
@@ -115,6 +116,59 @@ def test_save_and_load_cache_roundtrip():
         save_albums_to_cache(albums, db_path)
         result = load_cached_albums(db_path)
         assert result == albums
+    finally:
+        os.unlink(db_path)
+
+
+def test_get_cached_album_count_empty():
+    with tempfile.TemporaryDirectory() as d:
+        assert get_cached_album_count(os.path.join(d, "spotty.db")) == 0
+
+
+def test_get_cached_album_count():
+    albums = make_album_items(7)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        save_albums_to_cache(albums, db_path)
+        assert get_cached_album_count(db_path) == 7
+    finally:
+        os.unlink(db_path)
+
+
+def test_sample_cached_albums_returns_n():
+    albums = make_album_items(20)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        save_albums_to_cache(albums, db_path)
+        result = sample_cached_albums(5, db_path)
+        assert len(result) == 5
+    finally:
+        os.unlink(db_path)
+
+
+def test_sample_cached_albums_no_duplicates():
+    albums = make_album_items(20)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        save_albums_to_cache(albums, db_path)
+        result = sample_cached_albums(10, db_path)
+        names = [r["album"]["name"] for r in result]
+        assert len(names) == len(set(names))
+    finally:
+        os.unlink(db_path)
+
+
+def test_sample_cached_albums_is_random():
+    albums = make_album_items(100)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        save_albums_to_cache(albums, db_path)
+        draws = [tuple(r["album"]["name"] for r in sample_cached_albums(10, db_path)) for _ in range(5)]
+        assert len(set(draws)) > 1
     finally:
         os.unlink(db_path)
 
