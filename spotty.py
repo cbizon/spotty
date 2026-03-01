@@ -1,11 +1,13 @@
 import json
 import random
+import sqlite3
 import sys
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 CONFIG_FILE = "config.json"
+CACHE_FILE = "spotty.db"
 SCOPE = "user-library-read"
 
 
@@ -23,6 +25,33 @@ def get_spotify_client(config):
     ))
 
 
+def get_album_total(sp):
+    response = sp.current_user_saved_albums(limit=1)
+    return response["total"]
+
+
+def load_cached_albums(db_path=CACHE_FILE):
+    con = sqlite3.connect(db_path)
+    try:
+        rows = con.execute("SELECT data FROM albums").fetchall()
+        return [json.loads(row[0]) for row in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def save_albums_to_cache(albums, db_path=CACHE_FILE):
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS albums (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+        con.execute("DELETE FROM albums")
+        con.executemany("INSERT INTO albums (data) VALUES (?)", [(json.dumps(a),) for a in albums])
+        con.commit()
+    finally:
+        con.close()
+
+
 def get_all_saved_albums(sp):
     albums = []
     limit = 50
@@ -34,6 +63,17 @@ def get_all_saved_albums(sp):
         if len(items) < limit:
             break
         offset += limit
+    return albums
+
+
+def get_albums(sp, db_path=CACHE_FILE):
+    total = get_album_total(sp)
+    cached = load_cached_albums(db_path)
+    if len(cached) == total:
+        return cached
+    print("Library changed, refreshing cache...")
+    albums = get_all_saved_albums(sp)
+    save_albums_to_cache(albums, db_path)
     return albums
 
 
@@ -67,8 +107,7 @@ def main():
     config = load_config()
     sp = get_spotify_client(config)
 
-    print("Fetching your saved albums...")
-    albums = get_all_saved_albums(sp)
+    albums = get_albums(sp)
     print(f"Found {len(albums)} albums in your library")
 
     selected = choose_random_albums(albums, n)

@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 
-from spotty import choose_random_albums, format_album, load_config
+from spotty import choose_random_albums, format_album, load_cached_albums, load_config, save_albums_to_cache
 
 
 def make_album_item(artist, title, year):
@@ -97,3 +97,37 @@ def test_format_album_uses_year_only():
     result = format_album(item)
     assert result.endswith("(1985)")
     assert "1985-01-01" not in result
+
+
+# --- cache ---
+
+def test_load_cached_albums_no_db():
+    with tempfile.TemporaryDirectory() as d:
+        result = load_cached_albums(os.path.join(d, "spotty.db"))
+        assert result == []
+
+
+def test_save_and_load_cache_roundtrip():
+    albums = make_album_items(5)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        save_albums_to_cache(albums, db_path)
+        result = load_cached_albums(db_path)
+        assert result == albums
+    finally:
+        os.unlink(db_path)
+
+
+def test_save_cache_overwrites_previous():
+    first = make_album_items(3)
+    second = make_album_items(7)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        save_albums_to_cache(first, db_path)
+        save_albums_to_cache(second, db_path)
+        result = load_cached_albums(db_path)
+        assert result == second
+    finally:
+        os.unlink(db_path)

@@ -5,3 +5,4 @@ __pycache__/
 .coverage
 config.json
 .cache
+spotty.db
